@@ -1,0 +1,41 @@
+############################################
+### get last logon time for dedicated desktops,
+### also gets the desktops creation date
+$vc = vcenter-server
+$pool = pool-name
+
+connect-viserver $vc
+$desktops = Get-Pool -Pool_id $pool | Get-DesktopVM | select name, user_displayname, hostname
+$results = @()
+foreach ($desk in $desktops)
+{
+$share = '\\' + $desk.hostname + '\c$\logs'
+$lastlogon = Get-ChildItem -Path $share -ErrorAction silentlycontinue | Sort-Object Lastaccesstime -Descending | Select-Object -First 1
+$row = new-object psobject
+Add-Member -InputObject $row -MemberType noteproperty -Name "user" -Value $desk.user_displayname
+Add-Member -InputObject $row -MemberType noteproperty -Name "desktop" -Value $desk.name
+Add-Member -InputObject $row -MemberType noteproperty -Name "dns" -Value $desk.hostname
+if ($lastlogon)
+{
+	Add-Member -InputObject $row -MemberType noteproperty -Name "last_logon" -Value $lastlogon.lastwritetime
+}
+else
+{
+Add-Member -InputObject $row -MemberType noteproperty -Name "last_logon" -Value "Never"
+}
+## deployment date
+$vm = get-vm -name $desk.name
+$deployed = $vm | get-vievent | where {$_.FullFormattedMessage -like '*deployed*'}
+if ($deployed.createdtime -ge 0)
+{
+Add-Member -InputObject $row -MemberType noteproperty -Name "deployed" -Value $deployed.createdtime
+}
+else
+{
+Add-Member -InputObject $row -MemberType noteproperty -Name "deployed" -Value ' >90 days'
+}
+
+
+$results += $row
+}
+$results | Export-Csv -Path lastlog.csv -NoTypeInformation
